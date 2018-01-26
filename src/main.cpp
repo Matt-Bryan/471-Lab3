@@ -30,6 +30,7 @@ public:
 
 	// Data necessary to give our triangle to OpenGL
 	GLuint VertexBufferID;
+	GLuint IndexBufferID;
 
 	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 	{
@@ -50,10 +51,11 @@ public:
 			glfwGetCursorPos(window, &posX, &posY);
 			std::cout << "Pos X " << posX <<  " Pos Y " << posY << std::endl;
 
+			glfwGetFramebufferSize(window, &g_width, &g_height);
+
 			//change this to be the points converted to WORLD
-			//THIS IS BROKEN< YOU GET TO FIX IT - yay!
-			newPt[0] = 0;
-			newPt[1] = 0;
+			newPt[0] = p2wX(posX);
+			newPt[1] = p2wY(posY);
 
 			std::cout << "converted:" << newPt[0] << " " << newPt[1] << std::endl;
 			glBindBuffer(GL_ARRAY_BUFFER, VertexBufferID);
@@ -88,18 +90,86 @@ public:
 		{
 			-0.5f, -0.5f, 0.0f,
 			0.5f, -0.5f, 0.0f,
-			0.0f, 0.7f, 0.0f
+			0.0f, 0.7f, 0.0f,
+
+			-0.1f, 0.7f, 0.0f,
+			-0.6f, 0.7f, 0.0f,
+			-0.6f, -0.5f, 0.0f,
+
+			0.1f, 0.7f, 0.0f,
+			0.6f, 0.7f, 0.0f,
+			0.6f, -0.5f, 0.0f,
 		};
+
 		//actually memcopy the data - only do this once
 		glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_DYNAMIC_DRAW);
 
 		//we need to set up the vertex array
 		glEnableVertexAttribArray(0);
 		//key function to get up how many elements to pull out at a time (3)
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*) 0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+		// Create and bind IBO
+		glGenBuffers(1, &IndexBufferID);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferID);
+
+		static const GLuint g_index_buffer_data[] =
+		{
+			0, 1, 2,
+			3, 4, 5,
+			6, 7, 8
+		};
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(g_index_buffer_data), g_index_buffer_data, GL_DYNAMIC_DRAW);
+
+		static const GLfloat g_color_buffer_data[] = {
+			1.0f,  1.0f,  0.0f,	// Yellow
+			1.0f,  0.5f,  0.5f, // Red, 1/2 Green, 1/2 Blue
+			0.0f,  0.0f,  1.0f, // Blue
+			1.0f,  0.0f,  1.0f, // Purple
+			0.0f,  0.0f,  1.0f, // Blue
+			1.0f,  0.0f,  0.0f, // Red
+			0.0f,  1.0f,  1.0f, // Teal
+			0.0f,  0.0f,  1.0f, // Blue
+			1.0f,  0.0f,  0.0f  // Red
+		};
+
+		GLuint colorbuffer;
+		glGenBuffers(1, &colorbuffer);
+		glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(g_color_buffer_data), g_color_buffer_data, GL_STATIC_DRAW);
+
+		// 2nd attribute buffer : colors
+		glEnableVertexAttribArray(1);
+		glBindBuffer(GL_ARRAY_BUFFER, colorbuffer);
+		glVertexAttribPointer(
+			1,                                // attribute. No particular reason for 1, but must match the layout in the shader.
+			3,                                // size
+			GL_FLOAT,                         // type
+			GL_FALSE,                         // normalized?
+			0,                                // stride
+			(void*)0                          // array buffer offset
+		);
 
 		glBindVertexArray(0);
 
+	}
+
+	int g_width, g_height;
+
+	float p2wX(int xp) {
+		float left = -((float)g_width / g_height), right = -left;
+
+		float xScale = (g_width / (right - left));
+		float xShift = -xScale * left;
+		return (xp - xShift) / xScale;
+	}
+
+	float p2wY(int yp) {
+		float bottom = 1, top = -1;
+
+		float yScale = (g_height / (top - bottom));
+		float yShift = -yScale * bottom;
+		return (yp - yShift) / yScale;
 	}
 
 	//General OGL initialization - set OGL state here
@@ -108,7 +178,7 @@ public:
 		GLSL::checkVersion();
 
 		// Set background color.
-		glClearColor(0.9f, 0.2f, 0.0f, 1.0f);
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		// Enable z-buffer test.
 		glEnable(GL_DEPTH_TEST);
 
@@ -120,6 +190,7 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("MV");
 		prog->addAttribute("vertPos");
+		prog->addUniform("uWindowSize");
 	}
 
 
@@ -133,6 +204,7 @@ public:
 		// Get current frame buffer size.
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+		glfwGetFramebufferSize(windowManager->getHandle(), &g_width, &g_height);
 		float aspect = width/(float)height;
 		glViewport(0, 0, width, height);
 
@@ -161,10 +233,12 @@ public:
 		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, glm::value_ptr(P->topMatrix()));
 		glUniformMatrix4fv(prog->getUniform("MV"), 1, GL_FALSE, glm::value_ptr(MV->topMatrix()));
 
+		glUniform2f(prog->getUniform("uWindowSize"), (float)width, (float)height);
+
 		glBindVertexArray(VertexArrayID);
 
 		//actually draw from vertex 0, 3 vertices
-		glDrawArrays(GL_TRIANGLES, 0, 3);
+		glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_INT, nullptr);
 
 		glBindVertexArray(0);
 
